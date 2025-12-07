@@ -51,4 +51,7 @@ htmlcov/
 # 빌드
 dist/
 build/
-*.egg-info/img.jpg
+*.egg-info/
+
+# 이미지 파일
+img.jpg

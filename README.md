@@ -82,8 +82,6 @@ GEMINI_API_KEY=your-gemini-api-key
 uvicorn main:app --reload
 ```
 
-서버 실행 후 http://127.0.0.1:8000/docs 에서 Swagger API 문서 확인 가능
-
 ## 📄 API 엔드포인트
 
 ### 👤 Users (`/users`)
