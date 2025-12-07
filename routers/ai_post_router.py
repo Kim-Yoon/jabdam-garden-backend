@@ -1,47 +1,67 @@
-from fastapi import APIRouter, UploadFile, File, HTTPException, Form
+from fastapi import APIRouter, HTTPException, Depends
+from sqlalchemy.orm import Session
 
-from config import settings
-from typing import Optional
-from pathlib import Path
-
-from controllers.genai_controller import generate_draft
-from utils.img_validators import validate_uploaded_image, get_image_info
+from database import get_db
+from controllers import genai_controller
+from schemas.genai_schema import GardenerCommentRequest, SummarizeRequest
+from utils.genai_utils import count_ai_comments, MAX_AI_GARDENER_COUNT
+from utils.auth import get_current_user_id
 
 router = APIRouter(prefix="/ai-posts", tags=["ai-posts"])
 
-@router.post("/generate-draft")
-async def generate_post_draft(
-    file: Optional[UploadFile] = File(None),  # ✅ Optional로 변경
-    text: Optional[str] = Form(None),  # 텍스트만으로도 생성 가능하게
-    style: str = Form("casual")
+
+# ============================================
+# 🌱 AI 정원사 - 의견 생성
+# ============================================
+@router.post("/gardener-comment")
+async def get_gardener_comment(
+    request: GardenerCommentRequest,
+    db: Session = Depends(get_db),
+    current_user: int = Depends(get_current_user_id)
 ):
-    # 1. 입력 검증
-    if not file and not text:
+    """
+    AI 정원사가 게시물에 대한 의견/질문을 생성합니다.
+    - 게시물당 최대 3회까지만 호출 가능
+    - 아이디어를 발전시키는 질문
+    - 새로운 관점 제시
+    """
+    if not request.post_title or not request.post_content:
+        raise HTTPException(400, "제목과 내용이 필요합니다")
+    
+    # 🔒 AI 정원사 호출 횟수 제한 체크
+    current_ai_count = count_ai_comments(db, request.post_id)
+    if current_ai_count >= MAX_AI_GARDENER_COUNT:
         raise HTTPException(
-            400, 
-            "이미지 또는 텍스트 중 하나는 필수입니다"
+            status_code=429,  # Too Many Requests
+            detail=f"이 씨앗에는 AI 정원사를 {MAX_AI_GARDENER_COUNT}번까지만 부를 수 있어요! 🌱"
         )
-    try:
-        image_bytes = None
-        img_info = None
-        filename = None
-        
-        # 2. 이미지가 있으면 검증
-        if file:
-            image_bytes = await validate_uploaded_image(file)
-            img_info = get_image_info(image_bytes)
-            filename = file.filename
-            print(f"✅ 이미지 검증 성공: {img_info}")
-        
-        # ✅ controller에 필요한 모든 데이터 전달
-        return await generate_draft(
-            image_bytes=image_bytes,
-            filename=filename,
-            text=text,
-            style=style,
-            img_info=img_info
-        )
-        
-    except HTTPException as e:
-        # 검증 실패 시 에러 그대로 전달
-        raise e
+    
+    return await genai_controller.generate_gardener_comment(
+        post_title=request.post_title,
+        post_content=request.post_content,
+        existing_comments=request.existing_comments
+    )
+
+
+# ============================================
+# 📝 잡담 정리 - 토론 요약
+# ============================================
+@router.post("/summarize")
+async def get_discussion_summary(
+    request: SummarizeRequest,
+    current_user: int = Depends(get_current_user_id)
+):
+    """
+    게시물과 댓글들을 분석해서 핵심 인사이트를 정리합니다.
+    - 핵심 아이디어 추출
+    - 공통된 의견 정리
+    - 더 논의가 필요한 점 제시
+    """
+    if not request.post_title or not request.post_content:
+        raise HTTPException(400, "제목과 내용이 필요합니다")
+    
+    return await genai_controller.summarize_discussion(
+        post_title=request.post_title,
+        post_content=request.post_content,
+        comments=request.comments
+    )
