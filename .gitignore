@@ -1,0 +1,54 @@
+# 환경변수 (중요!)
+.env
+.env.local
+
+# 업로드 파일 (이미지 등)
+uploads/
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# 가상환경
+venv/
+env/
+ENV/
+
+# Poetry
+poetry.lock  # 팀 프로젝트면 포함할 수도 있음
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# 데이터베이스
+*.db
+*.sqlite
+*.sqlite3
+
+# 로그
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# 테스트 커버리지
+.coverage
+htmlcov/
+.pytest_cache/
+
+# 빌드
+dist/
+build/
+*.egg-info/img.jpg

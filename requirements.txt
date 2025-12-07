@@ -1,0 +1,21 @@
+# Core Framework
+fastapi>=0.121.0
+uvicorn>=0.38.0
+
+# Database
+sqlalchemy>=2.0.0
+
+# Configuration
+pydantic-settings>=2.3.0
+
+# Authentication & Security
+python-jose[cryptography]>=3.3.0
+bcrypt>=4.0.0
+
+# Database Drivers (선택)
+# MySQL/MariaDB 사용 시 아래 주석 해제
+# pymysql>=1.0.0
+
+# PostgreSQL 사용 시 아래 주석 해제
+# psycopg2-binary>=2.9.0
+
