@@ -3,7 +3,7 @@ import logging
 from datetime import datetime, timedelta
 
 from fastapi import HTTPException, status, Response
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from models import user_model
 from typing import Optional
@@ -15,27 +15,30 @@ from schemas.user_schema import (
     UserResponse,
 )
 from utils.auth import create_access_token, hash_password, verify_password
+from utils.img_validators import delete_profile_image
 
 
 logger = logging.getLogger(__name__)
 
+
 # 사용자 목록 조회
-def get_users(db: Session):
-    users = user_model.get_users(db)
+async def get_users(db: AsyncSession):
+    users = await user_model.get_users(db)
     if not users:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found"
+            detail="사용자를 찾을 수 없습니다"
         )
     return [UserResponse.model_validate(u) for u in users]
 
+
 # 특정 사용자 조회
-def get_user(user_id: int, db: Session):
-    user = user_model.get_user_by_id(db, user_id)  
+async def get_user(user_id: int, db: AsyncSession):
+    user = await user_model.get_user_by_id(db, user_id)  
     if not user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found"
+            detail="사용자를 찾을 수 없습니다"
         )
     return UserResponse(
             id=user.id,
@@ -44,23 +47,25 @@ def get_user(user_id: int, db: Session):
             profile_image=user.img,
         )
 
+
 # 이메일 중복 확인
-def check_email_exists(email: str, db: Session):
-    existing_user = user_model.get_user_by_email(db, email)
+async def check_email_exists(email: str, db: AsyncSession):
+    existing_user = await user_model.get_user_by_email(db, email)
     return {"exists": existing_user is not None}
 
+
 # 이름 중복 확인
-def check_name_exists(name: str, db: Session):
-    existing_user = user_model.get_user_by_name(db, name)
+async def check_name_exists(name: str, db: AsyncSession):
+    existing_user = await user_model.get_user_by_name(db, name)
     return {"exists": existing_user is not None}
 
 # 사용자 생성 - 회원가입
-def create_user(user_data: UserCreateRequest, db: Session, img_path: Optional[str] = None):
+async def create_user(user_data: UserCreateRequest, db: AsyncSession, img_path: Optional[str] = None):
     salt_rounds = 10
 
     try: 
         # 이메일 중복 확인
-        existing_user = user_model.get_user_by_email(db, user_data.email)
+        existing_user = await user_model.get_user_by_email(db, user_data.email)
         if existing_user:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
@@ -71,11 +76,11 @@ def create_user(user_data: UserCreateRequest, db: Session, img_path: Optional[st
         hashed_pwd = hash_password(user_data.password, salt_rounds)
     
         # DB에 저장 (아직 commit 안 함)
-        new_user = user_model.create_user(db, user_data, hashed_pwd, img_path)
+        new_user = await user_model.create_user(db, user_data, hashed_pwd, img_path)
 
         # 모든 작업이 성공하면 commit
-        db.commit()
-        db.refresh(new_user)
+        await db.commit()
+        await db.refresh(new_user)
         
         return UserAuthResponse(
             id=new_user.id,
@@ -84,16 +89,16 @@ def create_user(user_data: UserCreateRequest, db: Session, img_path: Optional[st
             profile_image=new_user.img,
         )
     except HTTPException:
-        db.rollback()
+        await db.rollback()
         raise
     except Exception as e:
         logger.exception("Unexpected error during user creation")
-        db.rollback()
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="user_creation_failed")
+        await db.rollback()
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="회원가입 처리 중 오류가 발생했습니다")
 
-def login(user_input: UserLogin, response: Response, db: Session):
+async def login(user_input: UserLogin, response: Response, db: AsyncSession):
     try:
-        user = user_model.get_user_by_email(db, user_input.email)
+        user = await user_model.get_user_by_email(db, user_input.email)
         #이메일로 사용자 검색
         if not user:
             # logger.warning(f"로그인 실패: 존재하지 않는 이메일 - {user_input.email}")
@@ -157,26 +162,21 @@ def login(user_input: UserLogin, response: Response, db: Session):
             detail="로그인 처리 중 오류가 발생했습니다"
         )
 
-def logout(user_id: int):
-    user = user_model.get_user_by_id(user_id)
-    if not user:
-        raise HTTPException(status_code=404, detail="no_user_found")
-
 # 회원정보 수정
-def update_my_info(name: Optional[str], img_path: Optional[str], user_id: int, db: Session):
+async def update_my_info(name: Optional[str], img_path: Optional[str], user_id: int, db: AsyncSession):
     # 사용자 존재 확인
-    user = user_model.get_user_by_id(db, user_id)
+    user = await user_model.get_user_by_id(db, user_id)
     if not user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found"
+            detail="사용자를 찾을 수 없습니다"
         )
 
     updates = {}
     old_img_path = user.img  # 기존 이미지 경로 저장
     
     if name:
-        existing_user = user_model.get_user_by_name(db, name.strip())
+        existing_user = await user_model.get_user_by_name(db, name.strip())
         if existing_user and existing_user.id != user_id:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
@@ -187,20 +187,19 @@ def update_my_info(name: Optional[str], img_path: Optional[str], user_id: int, d
     if img_path:
         updates["img"] = img_path
 
-    updated_user = user_model.update_user(db, user_id, updates)
+    updated_user = await user_model.update_user(db, user_id, updates)
     if not updated_user:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="update_failed"
+            detail="회원정보 수정 중 오류가 발생했습니다"
         )
 
     try:
-        db.commit()
-        db.refresh(updated_user)
+        await db.commit()
+        await db.refresh(updated_user)
         
         # 새 이미지가 저장되었으면 기존 이미지 삭제
         if img_path and old_img_path:
-            from utils.img_validators import delete_profile_image
             delete_profile_image(old_img_path)
         
         # 수정된 유저 정보 반환
@@ -211,34 +210,30 @@ def update_my_info(name: Optional[str], img_path: Optional[str], user_id: int, d
             profile_image=updated_user.img
         )
     except HTTPException:
-        db.rollback()
+        await db.rollback()
         raise
     except Exception as e:
-        db.rollback()
+        await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"update_failed: {str(e)}"
+            detail=f"회원정보 수정 중 오류가 발생했습니다: {str(e)}"
         )
 
 # 회원 비밀번호 수정
-def change_pwd(data: PasswordUpdate, user_id: int, db: Session):
-    user = user_model.get_user_by_id(db, user_id)
+async def change_pwd(data: PasswordUpdate, user_id: int, db: AsyncSession):
+    user = await user_model.get_user_by_id(db, user_id)
     if not user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found"
+            detail="사용자를 찾을 수 없습니다"
         )
 
-    # 3. 비밀번호 검증
+    # 비밀번호 검증
     if not verify_password(data.current_pwd, user.password):
-        # logger.warning(f"로그인 실패: 잘못된 비밀번호 - {user_input.email}")
-        # 보안: 같은 메시지 사용
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="현재 비밀번호가 일치하지 않습니다"
         )
-
-    updates={}
 
     # 비밀번호 암호화
     hashed_password = hash_password(data.password)
@@ -247,30 +242,30 @@ def change_pwd(data: PasswordUpdate, user_id: int, db: Session):
         "updated_at": datetime.now()
     }
     try:
-        updated_user = user_model.update_user(db, user_id, updates)
+        updated_user = await user_model.update_user(db, user_id, updates)
     
-        db.commit()
-        db.refresh(updated_user)
+        await db.commit()
+        await db.refresh(updated_user)
         return {"message": "비밀번호가 성공적으로 수정되었습니다"}
     except HTTPException:
-        db.rollback()
-        # 6. HTTPException은 그대로 전달
+        await db.rollback()
         raise
     except Exception as e:
-        db.rollback()
+        await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"update_failed: {str(e)}"
+            detail=f"비밀번호 수정 중 오류가 발생했습니다: {str(e)}"
         )
 
+
 # 회원정보 탈퇴
-def delete_user(user_id: int, db: Session):
+async def delete_user(user_id: int, db: AsyncSession):
     # 사용자 존재 확인
-    user = user_model.get_user_by_id(db, user_id)
+    user = await user_model.get_user_by_id(db, user_id)
     if not user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found"
+            detail="사용자를 찾을 수 없습니다"
         )
 
     # 이미 삭제된 사용자인지 확인
@@ -281,18 +276,16 @@ def delete_user(user_id: int, db: Session):
         )
     
     try:
-        del_user = user_model.delete_user(db, user_id)
-        db.commit()
+        await user_model.delete_user(db, user_id)
+        await db.commit()
         return {"message": "계정이 성공적으로 삭제되었습니다"}
         
     except HTTPException:
-        db.rollback()
+        await db.rollback()
         raise
     except Exception as e:
-        db.rollback()
+        await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"데이터베이스 오류: {str(e)}"
         )
-        
-    

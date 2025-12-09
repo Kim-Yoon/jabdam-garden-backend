@@ -1,20 +1,21 @@
 # model/post_model.py
 """게시글 ORM 모델 및 데이터 접근 함수."""
 from typing import Optional
-from datetime import datetime
 
-from sqlalchemy import Boolean, Column, DateTime, Integer, String, Text, func
-from sqlalchemy.orm import Session, relationship
+from sqlalchemy import Boolean, Column, DateTime, Integer, String, Text, func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import relationship, selectinload
 
 from database import Base
+
 
 class Post(Base):
     __tablename__ = "Posts"
     
     id = Column(Integer, primary_key=True, autoincrement=True)
-    user_id = Column(Integer, nullable=False, index=True)  # ForeignKey는 DB 스키마 변경 없이 relationship만 추가
+    user_id = Column(Integer, nullable=False, index=True)
     title = Column(String(26), nullable=False)
-    content = Column(Text, nullable=False)  # LONGTEXT는 Text로 매핑
+    content = Column(Text, nullable=False)
     img = Column(String(500), nullable=True)
     view_count = Column(Integer, default=0, nullable=False)
     is_deleted = Column(Boolean, default=False, nullable=False)
@@ -31,26 +32,42 @@ class Post(Base):
     # 댓글 관계 추가 (comment_count 조회용)
     comments = relationship("Comment", foreign_keys="Comment.post_id", primaryjoin="Post.id == Comment.post_id")
 
-def get_posts(db: Session):
-    posts = db.query(Post).filter(Post.is_deleted != True).all()
-    return posts
 
-def get_post_by_id(db: Session, post_id: int) -> Optional[Post]:
-    post = db.query(Post).filter(Post.id == post_id).first()
-    return post
+async def get_posts(db: AsyncSession):
+    result = await db.execute(
+        select(Post)
+        .where(Post.is_deleted != True)
+        .options(selectinload(Post.comments), selectinload(Post.user))
+    )
+    return result.scalars().all()
 
-def create_post(db: Session, data: dict, user_id: int):
+
+async def get_post_by_id(db: AsyncSession, post_id: int) -> Optional[Post]:
+    result = await db.execute(
+        select(Post)
+        .where(Post.id == post_id)
+        .options(selectinload(Post.comments), selectinload(Post.user))
+    )
+    return result.scalars().first()
+
+
+async def create_post(db: AsyncSession, data: dict, user_id: int):
     new_post = Post(
         user_id=user_id,
         **data
     )
-    
-    db.add(new_post)
-    db.flush()
+    db.add(new_post)  # add()는 동기 메서드
+    await db.flush()
     return new_post
 
-def update_post(db: Session, updates: dict, post_id: int):
-    post = db.query(Post).filter(Post.id == post_id).first()
+
+async def update_post(db: AsyncSession, updates: dict, post_id: int):
+    result = await db.execute(
+        select(Post)
+        .where(Post.id == post_id)
+        .options(selectinload(Post.comments), selectinload(Post.user))
+    )
+    post = result.scalars().first()
     if not post:
         return None
         
@@ -58,11 +75,15 @@ def update_post(db: Session, updates: dict, post_id: int):
         setattr(post, key, value)
     return post
 
-def delete_post(db: Session, post_id: int):
-    post = db.query(Post).filter(Post.id == post_id).first()
+
+async def delete_post(db: AsyncSession, post_id: int):
+    result = await db.execute(
+        select(Post).where(Post.id == post_id)
+    )
+    post = result.scalars().first()
     if not post:
         return None
         
     post.is_deleted = True    
-    post.deleted_at = datetime.now()
-    return True 
+    post.deleted_at = func.now()
+    return True

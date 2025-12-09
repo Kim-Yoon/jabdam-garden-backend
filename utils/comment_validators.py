@@ -1,15 +1,16 @@
 from fastapi import Depends, HTTPException, Path, status
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db
 from models.comment_model import get_comment_by_id
 
-def get_valid_comment(
-    comment_id: int = Path(..., ge=1, description="게시물 ID"),
-    db: Session = Depends(get_db)
+
+async def get_valid_comment(
+    comment_id: int = Path(..., ge=1, description="댓글 ID"),
+    db: AsyncSession = Depends(get_db)
 ):
-    """게시물 존재 및 삭제 여부 확인 (Dependency)"""
-    comment = get_comment_by_id(db, comment_id)
+    """댓글 존재 및 삭제 여부 확인 (Dependency)"""
+    comment = await get_comment_by_id(db, comment_id)
     
     if not comment:
         raise HTTPException(
@@ -25,8 +26,9 @@ def get_valid_comment(
     
     return comment
 
+
 def validate_comment_owner(comment, user_id: int):
-    """게시물 작성자 권한 확인"""
+    """댓글 작성자 권한 확인"""
     if comment.user_id != user_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

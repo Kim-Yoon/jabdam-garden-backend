@@ -1,14 +1,14 @@
 from fastapi import APIRouter, HTTPException, Depends
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db
 from controllers import genai_controller
 from schemas.genai_schema import GardenerCommentRequest, SummarizeRequest
-from utils.genai_utils import count_ai_comments, MAX_AI_GARDENER_COUNT
+from models.comment_model import count_ai_comments
 from utils.auth import get_current_user_id
 
 router = APIRouter(prefix="/ai-posts", tags=["ai-posts"])
-
+MAX_AI_GARDENER_COUNT = 3
 
 # ============================================
 # 🌱 AI 정원사 - 의견 생성
@@ -16,7 +16,7 @@ router = APIRouter(prefix="/ai-posts", tags=["ai-posts"])
 @router.post("/gardener-comment")
 async def get_gardener_comment(
     request: GardenerCommentRequest,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
     current_user: int = Depends(get_current_user_id)
 ):
     """
@@ -29,7 +29,7 @@ async def get_gardener_comment(
         raise HTTPException(400, "제목과 내용이 필요합니다")
     
     # 🔒 AI 정원사 호출 횟수 제한 체크
-    current_ai_count = count_ai_comments(db, request.post_id)
+    current_ai_count = await count_ai_comments(db, request.post_id)
     if current_ai_count >= MAX_AI_GARDENER_COUNT:
         raise HTTPException(
             status_code=429,  # Too Many Requests

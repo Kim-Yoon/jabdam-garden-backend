@@ -1,30 +1,31 @@
-from typing import Generator
+from typing import AsyncGenerator
 
-from sqlalchemy import create_engine
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.orm import declarative_base
 from config import settings
 
-engine = create_engine(
+async_engine = create_async_engine(
     settings.DATABASE_URL,
-    pool_pre_ping=True,      # 연결 상태 체크
-    echo=settings.DEBUG,     # 개발 중 SQL 쿼리 로깅
+    pool_pre_ping=True,
+    echo=settings.DEBUG,
 )
 
-# 세션 로컬 생성
-SessionLocal = sessionmaker(
+# 비동기 세션 팩토리
+AsyncSessionLocal = async_sessionmaker(
+    bind=async_engine,
+    class_=AsyncSession,
+    expire_on_commit=False,
     autocommit=False,
     autoflush=False,
-    bind=engine
 )
 
 # Base 클래스 (모든 모델이 상속받을 클래스)
 Base = declarative_base()
 
-def get_db() -> Generator[Session, None, None]:
+async def get_db() -> AsyncGenerator[AsyncSession, None]:
     """요청 생명주기 동안 사용할 DB 세션을 제공하는 의존성."""
-    db = SessionLocal()
-    try:
-        yield db  
-    finally:
-        db.close()  # 사용 후 반드시 닫기
+    async with AsyncSessionLocal() as session:
+        try:
+            yield session
+        finally:
+            await session.close()

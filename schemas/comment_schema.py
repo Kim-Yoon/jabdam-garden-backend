@@ -36,6 +36,7 @@ class CommentResponse(BaseModel):
     user_id: int
     content: str
     user_name: Optional[str] = None  # 댓글 작성자 이름
+    user_profile_image: Optional[str] = None  # 댓글 작성자 프로필 이미지
     created_at: datetime
     updated_at: datetime
     
@@ -47,6 +48,7 @@ class CommentResponse(BaseModel):
             user_id=comment.user_id,
             content=comment.content,
             user_name=comment.user.name if comment.user else None,
+            user_profile_image=comment.user.img if comment.user else None,
             created_at=comment.created_at,
             updated_at=comment.updated_at
         )

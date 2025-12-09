@@ -54,7 +54,7 @@ async def generate_gardener_comment(
 
 의견을 작성해주세요:"""
 
-        response = client.models.generate_content(
+        response = await client.aio.models.generate_content(
             model='gemini-2.5-flash',
             contents=prompt
         )
@@ -130,7 +130,7 @@ async def summarize_discussion(
 - [질문1]
 - [질문2]"""
 
-        response = client.models.generate_content(
+        response = await client.aio.models.generate_content(
             model='gemini-2.5-flash',
             contents=prompt
         )
@@ -164,7 +164,6 @@ def parse_summary(text: str) -> dict:
             continue
         
         lines = section.split('\n')
-        items = []
         current_section = None
         
         for line in lines:

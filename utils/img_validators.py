@@ -4,6 +4,7 @@ from PIL import Image
 from pathlib import Path
 import io
 import uuid
+import aiofiles
 from config import settings
 
 class ImageValidationError(Exception):
@@ -210,9 +211,9 @@ async def save_image(contents: bytes, original_filename: str) -> str:
     # 저장 경로
     save_path = settings.UPLOAD_DIR / unique_filename
     
-    # 파일 저장
-    with open(save_path, "wb") as f:
-        f.write(contents)
+    # 비동기 파일 저장
+    async with aiofiles.open(save_path, "wb") as f:
+        await f.write(contents)
     
     # URL 경로 반환 (프론트엔드에서 접근할 경로)
     return f"/uploads/posts/{unique_filename}"
@@ -236,9 +237,9 @@ async def save_profile_image(contents: bytes, original_filename: str) -> str:
     # 저장 경로
     save_path = settings.PROFILE_UPLOAD_DIR / unique_filename
     
-    # 파일 저장
-    with open(save_path, "wb") as f:
-        f.write(contents)
+    # 비동기 파일 저장
+    async with aiofiles.open(save_path, "wb") as f:
+        await f.write(contents)
     
     # URL 경로 반환 (프론트엔드에서 접근할 경로)
     return f"/uploads/profiles/{unique_filename}"

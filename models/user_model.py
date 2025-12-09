@@ -3,10 +3,12 @@
 from typing import Any, Optional
 from datetime import datetime
 
-from sqlalchemy import Boolean, Column, DateTime, Integer, String, func
-from sqlalchemy.orm import Session, relationship
+from sqlalchemy import Boolean, Column, DateTime, Integer, String, func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import relationship
 
 from database import Base
+
 
 class User(Base):
     __tablename__ = "users"
@@ -23,26 +25,38 @@ class User(Base):
 
     # 좋아요 관계 추가
     likes = relationship("PostLike", back_populates="user", cascade="all, delete-orphan")
-    
+
 
 # 모든 사용자 조회
-def get_users(db: Session):
-    users = db.query(User).filter(User.is_deleted != True).all()
-    return users
+async def get_users(db: AsyncSession):
+    result = await db.execute(
+        select(User).where(User.is_deleted != True)
+    )
+    return result.scalars().all()
 
-def get_user_by_id(db: Session, user_id: int) -> Optional[User]:
-    user = db.query(User).filter(User.id == user_id).first()
-    return user
 
-def get_user_by_name(db: Session, name: str) -> Optional[User]:
-    user = db.query(User).filter(User.name == name).first()
-    return user
+async def get_user_by_id(db: AsyncSession, user_id: int) -> Optional[User]:
+    result = await db.execute(
+        select(User).where(User.id == user_id)
+    )
+    return result.scalars().first()
 
-def get_user_by_email(db: Session, email: str) -> Optional[User]:
-    user = db.query(User).filter(User.email == email).first()
-    return user
 
-def create_user(db: Session, user_data: Any, hashed_pwd: str, img_path: Optional[str] = None) -> User:
+async def get_user_by_name(db: AsyncSession, name: str) -> Optional[User]:
+    result = await db.execute(
+        select(User).where(User.name == name)
+    )
+    return result.scalars().first()
+
+
+async def get_user_by_email(db: AsyncSession, email: str) -> Optional[User]:
+    result = await db.execute(
+        select(User).where(User.email == email)
+    )
+    return result.scalars().first()
+
+
+async def create_user(db: AsyncSession, user_data: Any, hashed_pwd: str, img_path: Optional[str] = None) -> User:
     """신규 사용자 생성."""
     new_user = User( 
         email=user_data.email,
@@ -51,11 +65,15 @@ def create_user(db: Session, user_data: Any, hashed_pwd: str, img_path: Optional
         img=img_path
     )
     db.add(new_user)
-    db.flush()
+    await db.flush()
     return new_user
 
-def update_user(db: Session, user_id: int, updates: dict):
-    user = db.query(User).filter(User.id == user_id).first()
+
+async def update_user(db: AsyncSession, user_id: int, updates: dict):
+    result = await db.execute(
+        select(User).where(User.id == user_id)
+    )
+    user = result.scalars().first()
     if not user:
         return None
         
@@ -63,8 +81,12 @@ def update_user(db: Session, user_id: int, updates: dict):
         setattr(user, key, value)
     return user
 
-def delete_user(db: Session, user_id: int):
-    user = db.query(User).filter(User.id == user_id).first() 
+
+async def delete_user(db: AsyncSession, user_id: int):
+    result = await db.execute(
+        select(User).where(User.id == user_id)
+    )
+    user = result.scalars().first()
     if not user:
         return False
           
@@ -72,7 +94,7 @@ def delete_user(db: Session, user_id: int):
     user.email = f"deleted_{user.id}_{timestamp}@deleted.com"
     user.name = f"탈퇴한사용자_{user.id}"
     user.is_deleted = True
-    user.deleted_at = datetime.now()  
+    user.deleted_at = func.now()  # DB 서버 시간 사용  
     
-    return True 
+    return True
     
