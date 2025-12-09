@@ -8,60 +8,74 @@ backend_dir = Path(__file__).parent.parent
 sys.path.insert(0, str(backend_dir))
 
 import pytest
-from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
+import pytest_asyncio
+from httpx import AsyncClient, ASGITransport
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from main import app
 from database import Base, get_db
 
 
-# 테스트용 인메모리 SQLite DB
-SQLALCHEMY_TEST_DATABASE_URL = "sqlite:///:memory:"
+# 테스트용 인메모리 SQLite DB (비동기)
+SQLALCHEMY_TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
 
-engine = create_engine(
+async_engine = create_async_engine(
     SQLALCHEMY_TEST_DATABASE_URL,
     connect_args={"check_same_thread": False},
     poolclass=StaticPool,
+    echo=False,
 )
-TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+TestingAsyncSessionLocal = async_sessionmaker(
+    async_engine,
+    class_=AsyncSession,
+    expire_on_commit=False,
+    autocommit=False,
+    autoflush=False,
+)
 
 
-def override_get_db():
+async def override_get_db():
     """테스트용 DB 세션."""
-    db = TestingSessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+    async with TestingAsyncSessionLocal() as session:
+        try:
+            yield session
+        finally:
+            await session.close()
 
 
-@pytest.fixture(scope="function")
-def db_session():
+@pytest_asyncio.fixture(scope="function")
+async def db_session():
     """각 테스트마다 새로운 DB 세션 제공."""
-    Base.metadata.create_all(bind=engine)
-    db = TestingSessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-        Base.metadata.drop_all(bind=engine)
+    async with async_engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    
+    async with TestingAsyncSessionLocal() as session:
+        try:
+            yield session
+        finally:
+            await session.close()
+    
+    async with async_engine.begin() as conn:
+        await conn.run_sync(Base.metadata.drop_all)
 
 
-@pytest.fixture(scope="function")
-def client(db_session):
-    """테스트용 API 클라이언트."""
+@pytest_asyncio.fixture(scope="function")
+async def async_client():
+    """테스트용 비동기 API 클라이언트."""
     app.dependency_overrides[get_db] = override_get_db
     
     # 테스트 전 테이블 생성
-    Base.metadata.create_all(bind=engine)
+    async with async_engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
     
-    with TestClient(app) as test_client:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as test_client:
         yield test_client
     
     # 테스트 후 정리
-    Base.metadata.drop_all(bind=engine)
+    async with async_engine.begin() as conn:
+        await conn.run_sync(Base.metadata.drop_all)
     app.dependency_overrides.clear()
 
 
@@ -85,17 +99,17 @@ def test_post_data():
     }
 
 
-@pytest.fixture
-def authenticated_client(client, test_user_data):
+@pytest_asyncio.fixture
+async def authenticated_client(async_client, test_user_data):
     """로그인된 상태의 테스트 클라이언트."""
     # 1. 회원가입
-    client.post("/users", data=test_user_data)
+    await async_client.post("/users", data=test_user_data)
     
     # 2. 로그인
-    login_response = client.post("/users/login", json={
+    login_response = await async_client.post("/users/login", json={
         "email": test_user_data["email"],
         "password": test_user_data["password"]
     })
     
     # 쿠키가 자동으로 설정됨
-    return client
+    return async_client
